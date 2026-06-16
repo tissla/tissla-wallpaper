@@ -2,7 +2,12 @@
 package daemon
 
 import (
+	"log"
+	"net"
+	"os"
 	"time"
+	"tissla-wallpaper/internal/ipc"
+	"tissla-wallpaper/internal/protocol"
 	wl "tissla-wallpaper/internal/wayland"
 )
 
@@ -57,7 +62,69 @@ func (d *Daemon) init() error {
 
 	// get compositor, shm, layerShell
 	// create get_registry data
+	err := protocol.GetRegistry(d.wlConn)
+	if err != nil {
+		return err
+	}
+
+	for d.compositor == 0 || d.shm == 0 || d.layerShell == 0 {
+		msg, err := d.wlConn.Read()
+		if err != nil {
+			return err
+		}
+
+		global, ok := protocol.ParseGlobal(msg)
+		if !ok {
+			continue
+		}
+
+		switch global.Interface {
+		case "wl_compositor":
+			d.compositor = global.Name
+		case "wl_shm":
+			d.shm = global.Name
+		case "zwlr_layer_shell_v1":
+			d.layerShell = global.Name
+		}
+	}
 
 	// get screen outputs
+	return nil
+}
+
+func (d *Daemon) HandleEvents() {
+	for msg := range d.wlConn.Listen() {
+
+		println("%s", msg)
+	}
+
+}
+
+func (d *Daemon) HandleCommands() {
+
+	sockPath := ipc.SocketPath()
+	os.Remove(sockPath)
+
+	ln, err := net.Listen("unix", sockPath)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer ln.Close()
+
+	for {
+		conn, err := ln.Accept()
+		if err != nil {
+			continue
+		}
+
+		buf := make([]byte, 1024)
+		n, _ := conn.Read(buf)
+		d.handleCommand(string(buf[:n]))
+		conn.Close()
+	}
+}
+
+func (d *Daemon) handleCommand(cmd string) error {
+
 	return nil
 }
