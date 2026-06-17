@@ -15,6 +15,8 @@ type Daemon struct {
 	wlConn wl.Connection
 	est    time.Time
 
+	nextID uint32
+
 	compositor uint32
 	shm        uint32
 	layerShell uint32
@@ -24,7 +26,8 @@ type Daemon struct {
 }
 
 type Output struct {
-	id uint32
+	name uint32 // registry name to match global_remove
+	id   uint32 // bound wl_output object id
 
 	surface   uint32
 	layerSurf uint32
@@ -60,6 +63,7 @@ func New() (*Daemon, error) {
 
 func (d *Daemon) init() error {
 
+	d.nextID = 2
 	// get compositor, shm, layerShell
 	// create get_registry data
 	err := protocol.GetRegistry(d.wlConn)
@@ -67,7 +71,9 @@ func (d *Daemon) init() error {
 		return err
 	}
 
-	for d.compositor == 0 || d.shm == 0 || d.layerShell == 0 {
+	var compositorName, shmName, layerShellName uint32
+
+	for compositorName == 0 || shmName == 0 || layerShellName == 0 {
 		msg, err := d.wlConn.Read()
 		if err != nil {
 			return err
@@ -80,22 +86,73 @@ func (d *Daemon) init() error {
 
 		switch global.Interface {
 		case "wl_compositor":
-			d.compositor = global.Name
+			compositorName = global.Name
+			d.compositor = d.allocID()
+			if err = protocol.Bind(d.wlConn, protocol.RegistryID, compositorName, d.compositor, "wl_compositor", 4); err != nil {
+				return err
+			}
 		case "wl_shm":
-			d.shm = global.Name
+			shmName = global.Name
+			d.shm = d.allocID()
+			if err = protocol.Bind(d.wlConn, protocol.RegistryID, shmName, d.shm, "wl_shm", 1); err != nil {
+				return err
+			}
 		case "zwlr_layer_shell_v1":
-			d.layerShell = global.Name
+			layerShellName = global.Name
+
+			d.layerShell = d.allocID()
+			if err = protocol.Bind(d.wlConn, protocol.RegistryID, layerShellName, d.layerShell, "zwlr_layer_shell_v1", 4); err != nil {
+				return err
+			}
 		}
 	}
 
-	// get screen outputs
 	return nil
+}
+
+// add and bind output to the daemons output array
+func (d *Daemon) handleOutputAdded(global protocol.Global) error {
+	out := &Output{}
+	boundID := d.allocID()
+	if err := protocol.Bind(d.wlConn, protocol.RegistryID, global.Name, boundID, "wl_output", 3); err != nil {
+		return err
+	}
+	out.id = boundID
+
+	out.surface = d.allocID()
+	if err := protocol.CreateSurface(d.wlConn, d.compositor, out.surface); err != nil {
+		return err
+	}
+
+	d.outputs = append(d.outputs, out)
+	return nil
+}
+
+// remove output from the daemons output array
+func (d *Daemon) handleOutputRemoved(name uint32) {
+
+	for i, out := range d.outputs {
+		if out.name == name {
+			d.outputs = append(d.outputs[:i], d.outputs[i+1:]...)
+			return
+		}
+	}
 }
 
 func (d *Daemon) HandleEvents() {
 	for msg := range d.wlConn.Listen() {
 
-		println("%s", msg)
+		if global, ok := protocol.ParseGlobal(msg); ok {
+			if global.Interface == "wl_output" {
+				d.handleOutputAdded(global)
+			}
+			continue
+		}
+
+		if name, ok := protocol.ParseGlobalRemove(msg); ok {
+			d.handleOutputRemoved(name)
+			continue
+		}
 	}
 
 }
@@ -127,4 +184,9 @@ func (d *Daemon) HandleCommands() {
 func (d *Daemon) handleCommand(cmd string) error {
 
 	return nil
+}
+
+func (d *Daemon) allocID() uint32 {
+	d.nextID++
+	return d.nextID
 }
