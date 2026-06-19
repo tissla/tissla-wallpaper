@@ -18,13 +18,10 @@ const (
 	wlRegistryGlobalRemove = 1
 )
 
-func ParseGlobal(msg []byte) (Global, bool) {
-	objectID := binary.LittleEndian.Uint32(msg[0:4])
-	sizeAndOp := binary.LittleEndian.Uint32(msg[4:8])
-	opcode := uint16(sizeAndOp & 0xFFFF)
+func ParseGlobal(msg wl.Message) (Global, bool) {
 
 	// global-event har opcode=0
-	if objectID != RegistryID || opcode != wlRegistryGlobal {
+	if msg.ObjectID() != RegistryID || msg.Opcode() != wlRegistryGlobal {
 		return Global{}, false
 	}
 
@@ -44,14 +41,9 @@ func ParseGlobal(msg []byte) (Global, bool) {
 
 // ParseGlobalRemove parses the wl_registry.global_remove global-event
 // returns ok=false if msg is not global_remove-event
-func ParseGlobalRemove(msg []byte) (uint32, bool) {
+func ParseGlobalRemove(msg wl.Message) (uint32, bool) {
 
-	objectID := binary.LittleEndian.Uint32(msg[0:4])
-	sizeAndOp := binary.LittleEndian.Uint32(msg[4:8])
-
-	opCode := uint16(sizeAndOp & 0xFFFF)
-
-	if objectID != RegistryID || opCode != wlRegistryGlobalRemove {
+	if msg.ObjectID() != RegistryID || msg.Opcode() != wlRegistryGlobalRemove {
 		return 0, false
 	}
 

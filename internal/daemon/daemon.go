@@ -73,7 +73,13 @@ func (d *Daemon) init() error {
 
 	var compositorName, shmName, layerShellName uint32
 
-	for compositorName == 0 || shmName == 0 || layerShellName == 0 {
+	syncID := d.allocID()
+	err = protocol.Sync(d.wlConn, syncID)
+	if err != nil {
+		return err
+	}
+
+	for {
 		msg, err := d.wlConn.Read()
 		if err != nil {
 			return err
