@@ -15,11 +15,14 @@ const (
 
 func CreateSurface(wlc wl.Connection, compositorID, newSurfaceID uint32) error {
 	size := 12 // 8 + 4
-	buf := make([]byte, size)
 
-	binary.LittleEndian.PutUint32(buf[0:4], compositorID)
-	binary.LittleEndian.PutUint32(buf[4:8], (uint32(size)<<16)|wlCompositorCreateSurface)
-	binary.LittleEndian.PutUint32(buf[8:12], newSurfaceID)
+	msg := wl.NewMessage(size)
 
-	return wlc.Write(buf)
+	msg.WriteID(compositorID)
+	msg.WriteSize(uint16(size))
+	msg.WriteOpcode(wlCompositorCreateSurface)
+
+	binary.LittleEndian.PutUint32(msg[8:12], newSurfaceID)
+
+	return wlc.Write(msg)
 }

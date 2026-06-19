@@ -2,11 +2,8 @@
 package daemon
 
 import (
-	"log"
-	"net"
-	"os"
+	"errors"
 	"time"
-	"tissla-wallpaper/internal/ipc"
 	"tissla-wallpaper/internal/protocol"
 	wl "tissla-wallpaper/internal/wayland"
 )
@@ -63,6 +60,7 @@ func New() (*Daemon, error) {
 
 func (d *Daemon) init() error {
 
+	// displayID = 1, registryID = 2
 	d.nextID = 2
 	// get compositor, shm, layerShell
 	// create get_registry data
@@ -71,7 +69,7 @@ func (d *Daemon) init() error {
 		return err
 	}
 
-	var compositorName, shmName, layerShellName uint32
+	var pendingOutputs []protocol.Global
 
 	syncID := d.allocID()
 	err = protocol.Sync(d.wlConn, syncID)
@@ -85,6 +83,11 @@ func (d *Daemon) init() error {
 			return err
 		}
 
+		done := protocol.ParseSyncDone(msg, syncID)
+		if done {
+			break
+		}
+
 		global, ok := protocol.ParseGlobal(msg)
 		if !ok {
 			continue
@@ -92,103 +95,57 @@ func (d *Daemon) init() error {
 
 		switch global.Interface {
 		case "wl_compositor":
-			compositorName = global.Name
 			d.compositor = d.allocID()
-			if err = protocol.Bind(d.wlConn, protocol.RegistryID, compositorName, d.compositor, "wl_compositor", 4); err != nil {
+			if err = protocol.Bind(d.wlConn, protocol.RegistryID, global.Name, d.compositor, "wl_compositor", 4); err != nil {
 				return err
 			}
 		case "wl_shm":
-			shmName = global.Name
 			d.shm = d.allocID()
-			if err = protocol.Bind(d.wlConn, protocol.RegistryID, shmName, d.shm, "wl_shm", 1); err != nil {
+			if err = protocol.Bind(d.wlConn, protocol.RegistryID, global.Name, d.shm, "wl_shm", 1); err != nil {
 				return err
 			}
 		case "zwlr_layer_shell_v1":
-			layerShellName = global.Name
 
 			d.layerShell = d.allocID()
-			if err = protocol.Bind(d.wlConn, protocol.RegistryID, layerShellName, d.layerShell, "zwlr_layer_shell_v1", 4); err != nil {
+			if err = protocol.Bind(d.wlConn, protocol.RegistryID, global.Name, d.layerShell, "zwlr_layer_shell_v1", 4); err != nil {
 				return err
 			}
+		case "wl_output":
+			pendingOutputs = append(pendingOutputs, global)
 		}
 	}
 
-	return nil
-}
-
-// add and bind output to the daemons output array
-func (d *Daemon) handleOutputAdded(global protocol.Global) error {
-	out := &Output{}
-	boundID := d.allocID()
-	if err := protocol.Bind(d.wlConn, protocol.RegistryID, global.Name, boundID, "wl_output", 3); err != nil {
-		return err
+	// validate
+	if d.compositor == 0 {
+		return errors.New("wl_compositor not found")
 	}
-	out.id = boundID
-
-	out.surface = d.allocID()
-	if err := protocol.CreateSurface(d.wlConn, d.compositor, out.surface); err != nil {
-		return err
+	if d.shm == 0 {
+		return errors.New("wl_shm not found")
+	}
+	if d.layerShell == 0 {
+		return errors.New("zwlr_layer_shell_v1 not found")
 	}
 
-	d.outputs = append(d.outputs, out)
-	return nil
-}
-
-// remove output from the daemons output array
-func (d *Daemon) handleOutputRemoved(name uint32) {
-
-	for i, out := range d.outputs {
-		if out.name == name {
-			d.outputs = append(d.outputs[:i], d.outputs[i+1:]...)
-			return
+	// bind the outputs
+	for _, g := range pendingOutputs {
+		out := &Output{
+			name: g.Name,
+			id:   d.allocID(),
 		}
-	}
-}
-
-func (d *Daemon) HandleEvents() {
-	for msg := range d.wlConn.Listen() {
-
-		if global, ok := protocol.ParseGlobal(msg); ok {
-			if global.Interface == "wl_output" {
-				d.handleOutputAdded(global)
-			}
-			continue
+		if err := protocol.Bind(d.wlConn, protocol.RegistryID, g.Name, out.id, "wl_output", 3); err != nil {
+			return err
+		}
+		out.surface = d.allocID()
+		if err := protocol.CreateSurface(d.wlConn, d.compositor, out.surface); err != nil {
+			return err
 		}
 
-		if name, ok := protocol.ParseGlobalRemove(msg); ok {
-			d.handleOutputRemoved(name)
-			continue
+		out.layerSurf = d.allocID()
+		if err := protocol.GetLayerSurface(d.wlConn, d.layerShell, out.layerSurf, out.surface, out.id, protocol.ZwlrLayerBackground, "wallpaper"); err != nil {
+			return err
 		}
+		d.outputs = append(d.outputs, out)
 	}
-
-}
-
-func (d *Daemon) HandleCommands() {
-
-	sockPath := ipc.SocketPath()
-	os.Remove(sockPath)
-
-	ln, err := net.Listen("unix", sockPath)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer ln.Close()
-
-	for {
-		conn, err := ln.Accept()
-		if err != nil {
-			continue
-		}
-
-		buf := make([]byte, 1024)
-		n, _ := conn.Read(buf)
-		d.handleCommand(string(buf[:n]))
-		conn.Close()
-	}
-}
-
-func (d *Daemon) handleCommand(cmd string) error {
-
 	return nil
 }
 

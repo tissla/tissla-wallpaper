@@ -8,6 +8,7 @@ func NewMessage(size int) Message {
 	return make(Message, size)
 }
 
+// read
 func (m Message) ObjectID() uint32 {
 	return binary.LittleEndian.Uint32(m[0:4])
 }
