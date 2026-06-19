@@ -58,24 +58,26 @@ func Bind(wlc wl.Connection, registryID, name, newID uint32, iface string, versi
 	ifaceBytes := encodeString(iface)
 
 	size := 8 + 4 + len(ifaceBytes) + 4 + 4 // header + name + iface + version + new_id
-	buf := make([]byte, size)
 
-	binary.LittleEndian.PutUint32(buf[0:4], registryID)
-	binary.LittleEndian.PutUint32(buf[4:8], (uint32(size)<<16)|wlRegistryBind)
+	msg := wl.NewMessage(size)
+
+	msg.WriteID(registryID)
+	msg.WriteSize(uint16(size))
+	msg.WriteOpcode(wlRegistryBind)
 
 	offset := 8
-	binary.LittleEndian.PutUint32(buf[offset:offset+4], name)
+	binary.LittleEndian.PutUint32(msg[offset:offset+4], name)
 	offset += 4
 
-	copy(buf[offset:], ifaceBytes)
+	copy(msg[offset:], ifaceBytes)
 	offset += len(ifaceBytes)
 
-	binary.LittleEndian.PutUint32(buf[offset:offset+4], version)
+	binary.LittleEndian.PutUint32(msg[offset:offset+4], version)
 	offset += 4
 
-	binary.LittleEndian.PutUint32(buf[offset:offset+4], newID)
+	binary.LittleEndian.PutUint32(msg[offset:offset+4], newID)
 
-	return wlc.Write(buf)
+	return wlc.Write(msg)
 }
 
 func encodeString(s string) []byte {

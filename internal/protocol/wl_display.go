@@ -2,7 +2,6 @@ package protocol
 
 import (
 	"encoding/binary"
-	"tissla-wallpaper/internal/wayland"
 	wl "tissla-wallpaper/internal/wayland"
 )
 
@@ -14,28 +13,35 @@ const (
 
 func GetRegistry(wlc wl.Connection) error {
 
-	buf := make([]byte, 12)
+	size := 12
+	msg := wl.NewMessage(size)
 
 	// header
-	binary.LittleEndian.PutUint32(buf[0:4], DisplayID)
-	// upper 16 bites is size, lower is opcode
-	binary.LittleEndian.PutUint32(buf[4:8], (12<<16)|wlDisplayGetRegistry)
-	// args
-	binary.LittleEndian.PutUint32(buf[8:12], RegistryID)
 
-	return wlc.Write(buf)
+	msg.WriteID(DisplayID)
+	msg.WriteSize(uint16(size))
+	msg.WriteOpcode(wlDisplayGetRegistry)
+
+	//args
+	binary.LittleEndian.PutUint32(msg[8:12], RegistryID)
+
+	return wlc.Write(msg)
 }
 
 // Sync sends a sync request to the wayland server. When the server emits an event with the callbackID the sync is complete.
 func Sync(wlc wl.Connection, callbackID uint32) error {
-	buf := make([]byte, 12)
-	binary.LittleEndian.PutUint32(buf[0:4], DisplayID)
-	binary.LittleEndian.PutUint32(buf[4:8], (12<<16)|wlDisplaySync)
-	binary.LittleEndian.PutUint32(buf[8:12], callbackID)
-	return wlc.Write(buf)
+	size := 12
+	msg := wl.NewMessage(size)
+	msg.WriteID(DisplayID)
+	msg.WriteSize(uint16(size))
+	msg.WriteOpcode(wlDisplaySync)
+
+	//TODO: abstract the arg part
+	binary.LittleEndian.PutUint32(msg[8:12], callbackID)
+
+	return wlc.Write(msg)
 }
 
-// GetID
-func ParseSyncDone(msg wayland.Message, callbackID uint32) bool {
-	return msg.ObjectID() == callbackID && msg.Opcode() == wlDisplaySync
+func ParseSyncDone(msg wl.Message, callbackID uint32) bool {
+	return msg.ObjectID() == callbackID && msg.Opcode() == 0
 }
