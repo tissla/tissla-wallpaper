@@ -32,6 +32,10 @@ type Output struct {
 	surface   uint32
 	layerSurf uint32
 
+	// ids of buffer and pool once wallpaper is set, to reuse for changing
+	bufferID uint32
+	poolID   uint32
+
 	width  uint32
 	height uint32
 }

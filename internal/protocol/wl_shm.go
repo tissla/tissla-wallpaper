@@ -14,8 +14,8 @@ const (
 
 	// pixel format enums
 	// maybe script this instead to keep up to date and synced to wayland_server?
-	wlShmPixelFormatArgb8888 = 0
-	wlShmPixelFormatXrgb8888 = 1
+	WlShmPixelFormatArgb8888 = 0
+	WlShmPixelFormatXrgb8888 = 1
 )
 
 // CreatePool implements the wayland protocols create pool request on the wl_shm interface
