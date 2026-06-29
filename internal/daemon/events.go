@@ -39,7 +39,7 @@ func (d *Daemon) HandleEvents() {
 // collect info about output
 func (d *Daemon) handleOutputEvent(msg wl.Message, out *Output) error {
 	switch msg.Opcode() {
-	case 6:
+	case protocol.WlOutputName:
 		strLen := binary.LittleEndian.Uint32(msg.Data()[0:4])
 		out.hName = string(msg.Data()[4 : 4+strLen-1])
 	}

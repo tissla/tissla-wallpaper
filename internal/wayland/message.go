@@ -14,11 +14,11 @@ func (m Message) ObjectID() uint32 {
 }
 
 func (m Message) Size() uint16 {
-	return binary.LittleEndian.Uint16(m[4:6])
+	return binary.LittleEndian.Uint16(m[6:8])
 }
 
 func (m Message) Opcode() uint16 {
-	return binary.LittleEndian.Uint16(m[6:8])
+	return binary.LittleEndian.Uint16(m[4:6])
 }
 
 func (m Message) Data() []byte {
@@ -31,8 +31,8 @@ func (m Message) WriteID(id uint32) {
 }
 
 func (m Message) WriteSize(size uint16) {
-	binary.LittleEndian.PutUint16(m[4:6], size)
+	binary.LittleEndian.PutUint16(m[6:8], size)
 }
 func (m Message) WriteOpcode(opcode uint16) {
-	binary.LittleEndian.PutUint16(m[6:8], opcode)
+	binary.LittleEndian.PutUint16(m[4:6], opcode)
 }

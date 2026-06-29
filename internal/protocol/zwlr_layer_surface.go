@@ -26,8 +26,8 @@ const (
 
 	AnchorTop    uint32 = 1
 	AnchorBottom uint32 = 2
-	AnchorLeft   uint32 = 3
-	AnchorRight  uint32 = 4
+	AnchorLeft   uint32 = 4
+	AnchorRight  uint32 = 8
 )
 
 func AckConfigure(wlc wl.Connection, layerSurfID, serial uint32) error {

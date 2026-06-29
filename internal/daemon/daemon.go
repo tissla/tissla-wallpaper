@@ -140,7 +140,7 @@ func (d *Daemon) setupOutput(g protocol.Global) error {
 		name: g.Name,
 		id:   d.allocID(),
 	}
-	if err := protocol.Bind(d.wlConn, protocol.RegistryID, g.Name, out.id, "wl_output", 3); err != nil {
+	if err := protocol.Bind(d.wlConn, protocol.RegistryID, g.Name, out.id, "wl_output", 4); err != nil {
 		return err
 	}
 	out.surface = d.allocID()

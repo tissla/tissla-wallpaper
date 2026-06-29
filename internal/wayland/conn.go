@@ -2,11 +2,12 @@
 package wayland
 
 import (
-	"encoding/binary"
-	"errors"
+	"fmt"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -19,6 +20,7 @@ type Connection interface {
 }
 type WlConnection struct {
 	conn *net.UnixConn
+	mu   sync.Mutex
 	est  time.Time
 }
 
@@ -52,6 +54,8 @@ func New() (*WlConnection, error) {
 
 // Write to WlConnection
 func (w *WlConnection) Write(data []byte) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
 
 	_, _, err := w.conn.WriteMsgUnix(data, nil, nil)
 	return err
@@ -59,6 +63,9 @@ func (w *WlConnection) Write(data []byte) error {
 
 // WriteFd writes with fd-argument to oob
 func (w *WlConnection) WriteFd(data []byte, fd int) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
 	oob := syscall.UnixRights(fd)
 	_, _, err := w.conn.WriteMsgUnix(data, oob, nil)
 	return err
@@ -66,33 +73,23 @@ func (w *WlConnection) WriteFd(data []byte, fd int) error {
 
 // Read WlConnection
 func (w *WlConnection) Read() ([]byte, error) {
-
 	header := make([]byte, 8)
-
-	n, err := w.conn.Read(header)
-	if err != nil {
+	if _, err := io.ReadFull(w.conn, header); err != nil {
 		return nil, err
 	}
-	if n != 8 {
-		return nil, errors.New("incomplete header")
-	}
 
-	// get size
-	msgSize := binary.LittleEndian.Uint16(header[4:6])
+	msgSize := Message(header).Size() // läser 6:8, samma källa som skrivsidan
+	if msgSize < 8 {
+		return nil, fmt.Errorf("invalid message size %d", msgSize)
+	}
 	if msgSize == 8 {
 		return header, nil
 	}
 
 	rest := make([]byte, msgSize-8)
-	n, err = w.conn.Read(rest)
-	if err != nil {
+	if _, err := io.ReadFull(w.conn, rest); err != nil {
 		return nil, err
 	}
-
-	if n != int(msgSize-8) {
-		return nil, errors.New("incomplete msg")
-	}
-
 	return append(header, rest...), nil
 }
 
