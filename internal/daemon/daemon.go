@@ -20,11 +20,14 @@ type Daemon struct {
 
 	outputs []*Output
 	action  SurfaceAction
+
+	initialized bool
 }
 
 type Output struct {
-	name uint32 // registry name to match global_remove
-	id   uint32 // bound wl_output object id
+	name  uint32 // registry name to match global_remove
+	id    uint32 // bound wl_output object id
+	hName string
 
 	surface   uint32
 	layerSurf uint32
@@ -59,55 +62,46 @@ func New() (*Daemon, error) {
 }
 
 func (d *Daemon) init() error {
-
-	// displayID = 1, registryID = 2
 	d.nextID = 2
-	// get compositor, shm, layerShell
-	// create get_registry data
-	err := protocol.GetRegistry(d.wlConn)
-	if err != nil {
+
+	if err := protocol.GetRegistry(d.wlConn); err != nil {
 		return err
 	}
-
-	var pendingOutputs []protocol.Global
 
 	syncID := d.allocID()
-	err = protocol.Sync(d.wlConn, syncID)
-	if err != nil {
+	if err := protocol.Sync(d.wlConn, syncID); err != nil {
 		return err
 	}
+
+	//collect outputs
+	var pendingOutputs []protocol.Global
 
 	for {
 		msg, err := d.wlConn.Read()
 		if err != nil {
 			return err
 		}
-
-		done := protocol.ParseSyncDone(msg, syncID)
-		if done {
+		if protocol.ParseSyncDone(msg, syncID) {
 			break
 		}
-
 		global, ok := protocol.ParseGlobal(msg)
 		if !ok {
 			continue
 		}
-
 		switch global.Interface {
 		case "wl_compositor":
 			d.compositor = d.allocID()
-			if err = protocol.Bind(d.wlConn, protocol.RegistryID, global.Name, d.compositor, "wl_compositor", 4); err != nil {
+			if err := protocol.Bind(d.wlConn, protocol.RegistryID, global.Name, d.compositor, "wl_compositor", 4); err != nil {
 				return err
 			}
 		case "wl_shm":
 			d.shm = d.allocID()
-			if err = protocol.Bind(d.wlConn, protocol.RegistryID, global.Name, d.shm, "wl_shm", 1); err != nil {
+			if err := protocol.Bind(d.wlConn, protocol.RegistryID, global.Name, d.shm, "wl_shm", 1); err != nil {
 				return err
 			}
 		case "zwlr_layer_shell_v1":
-
 			d.layerShell = d.allocID()
-			if err = protocol.Bind(d.wlConn, protocol.RegistryID, global.Name, d.layerShell, "zwlr_layer_shell_v1", 4); err != nil {
+			if err := protocol.Bind(d.wlConn, protocol.RegistryID, global.Name, d.layerShell, "zwlr_layer_shell_v1", 4); err != nil {
 				return err
 			}
 		case "wl_output":
@@ -115,7 +109,6 @@ func (d *Daemon) init() error {
 		}
 	}
 
-	// validate
 	if d.compositor == 0 {
 		return errors.New("wl_compositor not found")
 	}
@@ -126,26 +119,47 @@ func (d *Daemon) init() error {
 		return errors.New("zwlr_layer_shell_v1 not found")
 	}
 
-	// bind the outputs
+	// setup output
 	for _, g := range pendingOutputs {
-		out := &Output{
-			name: g.Name,
-			id:   d.allocID(),
-		}
-		if err := protocol.Bind(d.wlConn, protocol.RegistryID, g.Name, out.id, "wl_output", 3); err != nil {
+		if err := d.setupOutput(g); err != nil {
 			return err
 		}
-		out.surface = d.allocID()
-		if err := protocol.CreateSurface(d.wlConn, d.compositor, out.surface); err != nil {
-			return err
-		}
-
-		out.layerSurf = d.allocID()
-		if err := protocol.GetLayerSurface(d.wlConn, d.layerShell, out.layerSurf, out.surface, out.id, protocol.ZwlrLayerBackground, "wallpaper"); err != nil {
-			return err
-		}
-		d.outputs = append(d.outputs, out)
 	}
+
+	// set to true when finished
+	d.initialized = true
+	return nil
+}
+
+func (d *Daemon) setupOutput(g protocol.Global) error {
+	out := &Output{
+		name: g.Name,
+		id:   d.allocID(),
+	}
+	if err := protocol.Bind(d.wlConn, protocol.RegistryID, g.Name, out.id, "wl_output", 3); err != nil {
+		return err
+	}
+	out.surface = d.allocID()
+	if err := protocol.CreateSurface(d.wlConn, d.compositor, out.surface); err != nil {
+		return err
+	}
+	out.layerSurf = d.allocID()
+	if err := protocol.GetLayerSurface(d.wlConn, d.layerShell, out.layerSurf, out.surface, out.id, protocol.ZwlrLayerBackground, "wallpaper"); err != nil {
+		return err
+	}
+	if err := protocol.SetSize(d.wlConn, out.layerSurf, 0, 0); err != nil {
+		return err
+	}
+	if err := protocol.SetAnchor(d.wlConn, out.layerSurf, protocol.AnchorTop|protocol.AnchorBottom|protocol.AnchorLeft|protocol.AnchorRight); err != nil {
+		return err
+	}
+	if err := protocol.SetExclusiveZone(d.wlConn, out.layerSurf, -1); err != nil {
+		return err
+	}
+	if err := protocol.Commit(d.wlConn, out.surface); err != nil {
+		return err
+	}
+	d.outputs = append(d.outputs, out)
 	return nil
 }
 

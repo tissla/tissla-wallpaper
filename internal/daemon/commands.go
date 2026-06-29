@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"errors"
 	"log"
 	"net"
 	"os"
@@ -33,5 +34,12 @@ func (d *Daemon) HandleCommands() {
 
 func (d *Daemon) handleCommand(cmd string) error {
 
+	if !d.initialized {
+		return errors.New("daemon not initalized")
+	}
 	return nil
+}
+
+func (d *Daemon) SetWallpaper(outputName, wpPath string, action SurfaceAction) error {
+
 }
