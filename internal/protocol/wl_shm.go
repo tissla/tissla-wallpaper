@@ -19,7 +19,7 @@ const (
 )
 
 // CreatePool implements the wayland protocols create pool request on the wl_shm interface
-func CreatePool(wlc wl.Connection, shmID, newID uint32, poolSize, fd int) error {
+func CreatePool(shmID, newID uint32, poolSize int) wl.Message {
 
 	size := 16 // 8 + 4 + 4
 	msg := wl.NewMessage(size)
@@ -31,7 +31,7 @@ func CreatePool(wlc wl.Connection, shmID, newID uint32, poolSize, fd int) error 
 	binary.LittleEndian.PutUint32(msg[12:16], uint32(poolSize))
 
 	// fd sent oob
-	return wlc.WriteFd(msg, fd)
+	return msg
 }
 
 // ParseFormat parses the wayland protocols format event on the wl_shm interface

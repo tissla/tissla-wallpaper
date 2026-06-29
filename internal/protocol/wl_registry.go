@@ -54,7 +54,7 @@ func ParseGlobalRemove(msg wl.Message) (uint32, bool) {
 // Bind requests a local handle (newID) for a global the server
 // advertised under (name). After this, the client refers to the
 // object using newID; the server's "name" is no longer used.
-func Bind(wlc wl.Connection, registryID, name, newID uint32, iface string, version uint32) error {
+func Bind(registryID, name, newID uint32, iface string, version uint32) wl.Message {
 	ifaceBytes := encodeString(iface)
 
 	size := 8 + 4 + len(ifaceBytes) + 4 + 4 // header + name + iface + version + new_id
@@ -77,7 +77,7 @@ func Bind(wlc wl.Connection, registryID, name, newID uint32, iface string, versi
 
 	binary.LittleEndian.PutUint32(msg[offset:offset+4], newID)
 
-	return wlc.Write(msg)
+	return msg
 }
 
 func encodeString(s string) []byte {

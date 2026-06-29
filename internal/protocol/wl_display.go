@@ -11,7 +11,7 @@ const (
 	wlDisplayError       = 0 // event
 )
 
-func GetRegistry(wlc wl.Connection) error {
+func GetRegistry() wl.Message {
 
 	size := 12
 	msg := wl.NewMessage(size)
@@ -25,11 +25,11 @@ func GetRegistry(wlc wl.Connection) error {
 	//args
 	binary.LittleEndian.PutUint32(msg[8:12], RegistryID)
 
-	return wlc.Write(msg)
+	return msg
 }
 
 // Sync sends a sync request to the wayland server. When the server emits an event with the callbackID the sync is complete.
-func Sync(wlc wl.Connection, callbackID uint32) error {
+func Sync(callbackID uint32) wl.Message {
 	size := 12
 	msg := wl.NewMessage(size)
 	msg.WriteID(DisplayID)
@@ -39,7 +39,7 @@ func Sync(wlc wl.Connection, callbackID uint32) error {
 	//TODO: abstract the arg part
 	binary.LittleEndian.PutUint32(msg[8:12], callbackID)
 
-	return wlc.Write(msg)
+	return msg
 }
 
 func ParseSyncDone(msg wl.Message, callbackID uint32) bool {

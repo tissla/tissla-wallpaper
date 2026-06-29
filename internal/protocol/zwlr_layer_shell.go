@@ -15,7 +15,7 @@ const (
 	ZwlrLayerOverlay    = 3
 )
 
-func GetLayerSurface(wlc wl.Connection, layerShellID, newID, surface, output, layer uint32, namespace string) error {
+func GetLayerSurface(layerShellID, newID, surface, output, layer uint32, namespace string) wl.Message {
 
 	nsBytes := encodeString(namespace)
 
@@ -34,5 +34,5 @@ func GetLayerSurface(wlc wl.Connection, layerShellID, newID, surface, output, la
 
 	copy(msg[24:], nsBytes)
 
-	return wlc.Write(msg)
+	return msg
 }

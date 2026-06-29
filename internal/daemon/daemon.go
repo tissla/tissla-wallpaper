@@ -18,10 +18,15 @@ type Daemon struct {
 	shm        uint32
 	layerShell uint32
 
-	outputs []*Output
-	action  SurfaceAction
+	outputs  []*Output
+	commands chan command
 
 	initialized bool
+}
+
+type command struct {
+	action string
+	path   string
 }
 
 type Output struct {
@@ -54,8 +59,9 @@ func New() (*Daemon, error) {
 	}
 
 	d := &Daemon{
-		wlConn: conn,
-		est:    time.Now().UTC(),
+		wlConn:   conn,
+		est:      time.Now().UTC(),
+		commands: make(chan command),
 	}
 
 	if err := d.init(); err != nil {
@@ -68,12 +74,12 @@ func New() (*Daemon, error) {
 func (d *Daemon) init() error {
 	d.nextID = 2
 
-	if err := protocol.GetRegistry(d.wlConn); err != nil {
+	if err := d.send(protocol.GetRegistry()); err != nil {
 		return err
 	}
 
 	syncID := d.allocID()
-	if err := protocol.Sync(d.wlConn, syncID); err != nil {
+	if err := d.send(protocol.Sync(syncID)); err != nil {
 		return err
 	}
 
@@ -95,17 +101,17 @@ func (d *Daemon) init() error {
 		switch global.Interface {
 		case "wl_compositor":
 			d.compositor = d.allocID()
-			if err := protocol.Bind(d.wlConn, protocol.RegistryID, global.Name, d.compositor, "wl_compositor", 4); err != nil {
+			if err := d.send(protocol.Bind(protocol.RegistryID, global.Name, d.compositor, "wl_compositor", 4)); err != nil {
 				return err
 			}
 		case "wl_shm":
 			d.shm = d.allocID()
-			if err := protocol.Bind(d.wlConn, protocol.RegistryID, global.Name, d.shm, "wl_shm", 1); err != nil {
+			if err := d.send(protocol.Bind(protocol.RegistryID, global.Name, d.shm, "wl_shm", 1)); err != nil {
 				return err
 			}
 		case "zwlr_layer_shell_v1":
 			d.layerShell = d.allocID()
-			if err := protocol.Bind(d.wlConn, protocol.RegistryID, global.Name, d.layerShell, "zwlr_layer_shell_v1", 4); err != nil {
+			if err := d.send(protocol.Bind(protocol.RegistryID, global.Name, d.layerShell, "zwlr_layer_shell_v1", 4)); err != nil {
 				return err
 			}
 		case "wl_output":
@@ -140,27 +146,27 @@ func (d *Daemon) setupOutput(g protocol.Global) error {
 		name: g.Name,
 		id:   d.allocID(),
 	}
-	if err := protocol.Bind(d.wlConn, protocol.RegistryID, g.Name, out.id, "wl_output", 4); err != nil {
+	if err := d.send(protocol.Bind(protocol.RegistryID, g.Name, out.id, "wl_output", 4)); err != nil {
 		return err
 	}
 	out.surface = d.allocID()
-	if err := protocol.CreateSurface(d.wlConn, d.compositor, out.surface); err != nil {
+	if err := d.send(protocol.CreateSurface(d.compositor, out.surface)); err != nil {
 		return err
 	}
 	out.layerSurf = d.allocID()
-	if err := protocol.GetLayerSurface(d.wlConn, d.layerShell, out.layerSurf, out.surface, out.id, protocol.ZwlrLayerBackground, "wallpaper"); err != nil {
+	if err := d.send(protocol.GetLayerSurface(d.layerShell, out.layerSurf, out.surface, out.id, protocol.ZwlrLayerBackground, "wallpaper")); err != nil {
 		return err
 	}
-	if err := protocol.SetSize(d.wlConn, out.layerSurf, 0, 0); err != nil {
+	if err := d.send(protocol.SetSize(out.layerSurf, 0, 0)); err != nil {
 		return err
 	}
-	if err := protocol.SetAnchor(d.wlConn, out.layerSurf, protocol.AnchorTop|protocol.AnchorBottom|protocol.AnchorLeft|protocol.AnchorRight); err != nil {
+	if err := d.send(protocol.SetAnchor(out.layerSurf, protocol.AnchorTop|protocol.AnchorBottom|protocol.AnchorLeft|protocol.AnchorRight)); err != nil {
 		return err
 	}
-	if err := protocol.SetExclusiveZone(d.wlConn, out.layerSurf, -1); err != nil {
+	if err := d.send(protocol.SetExclusiveZone(out.layerSurf, -1)); err != nil {
 		return err
 	}
-	if err := protocol.Commit(d.wlConn, out.surface); err != nil {
+	if err := d.send(protocol.Commit(out.surface)); err != nil {
 		return err
 	}
 	d.outputs = append(d.outputs, out)
@@ -170,4 +176,12 @@ func (d *Daemon) setupOutput(g protocol.Global) error {
 func (d *Daemon) allocID() uint32 {
 	d.nextID++
 	return d.nextID
+}
+
+func (d *Daemon) send(msg wl.Message) error {
+	return d.wlConn.Write(msg)
+}
+
+func (d *Daemon) sendFd(msg wl.Message, fd int) error {
+	return d.wlConn.WriteFd(msg, fd)
 }

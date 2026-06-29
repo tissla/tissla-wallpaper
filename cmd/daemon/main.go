@@ -12,9 +12,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	go d.HandleEvents()
-
 	go d.HandleCommands()
+	d.Run()
 
-	select {}
 }

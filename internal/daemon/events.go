@@ -7,32 +7,23 @@ import (
 	wl "tissla-wallpaper/internal/wayland"
 )
 
-// HandleEvents handles events fired by the wayland server
-func (d *Daemon) HandleEvents() {
-	for raw := range d.wlConn.Listen() {
-
-		msg := wl.Message(raw)
-		switch msg.ObjectID() {
-
-		case protocol.RegistryID:
-
-		case protocol.DisplayID:
-
-		default:
-			for _, out := range d.outputs {
-				if msg.ObjectID() == out.layerSurf {
-
-					err := d.handleLayerSurfEvent(msg, out)
-					if err != nil {
-						log.Print(err)
-					}
-				}
-				if msg.ObjectID() == out.id {
-					d.handleOutputEvent(msg, out)
+func (d *Daemon) handleEvent(msg wl.Message) {
+	switch msg.ObjectID() {
+	case protocol.RegistryID:
+		// TODO: hotplug (global / global_remove)
+	case protocol.DisplayID:
+		// TODO: wl_display.error
+	default:
+		for _, out := range d.outputs {
+			if msg.ObjectID() == out.layerSurf {
+				if err := d.handleLayerSurfEvent(msg, out); err != nil {
+					log.Print(err)
 				}
 			}
+			if msg.ObjectID() == out.id {
+				d.handleOutputEvent(msg, out)
+			}
 		}
-
 	}
 }
 
@@ -59,7 +50,7 @@ func (d *Daemon) handleLayerSurfEvent(msg wl.Message, out *Output) error {
 		out.height = height
 
 		// sometime after this, use commit
-		if err := protocol.AckConfigure(d.wlConn, out.layerSurf, serial); err != nil {
+		if err := d.send(protocol.AckConfigure(out.layerSurf, serial)); err != nil {
 			return err
 		}
 	}

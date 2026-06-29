@@ -16,7 +16,7 @@ const (
 
 // Attach sets a buffer as the content of this surface
 // x and y must be 0 when to bound to wl_surface v5 or higher (offseting here is deprecated and moved to wl_surface.offset)
-func Attach(wlc wl.Connection, surfaceID, bufferID uint32, x, y int32) error {
+func Attach(surfaceID, bufferID uint32, x, y int32) wl.Message {
 
 	size := 20
 
@@ -30,10 +30,10 @@ func Attach(wlc wl.Connection, surfaceID, bufferID uint32, x, y int32) error {
 	binary.LittleEndian.PutUint32(msg[8:12], bufferID)
 	binary.LittleEndian.PutUint32(msg[12:16], uint32(x))
 	binary.LittleEndian.PutUint32(msg[16:20], uint32(y))
-	return wlc.Write(msg)
+	return msg
 }
 
-func Damage(wlc wl.Connection, surfaceID uint32, x, y, width, height int32) error {
+func Damage(surfaceID uint32, x, y, width, height int32) wl.Message {
 
 	size := 24
 	msg := wl.NewMessage(size)
@@ -47,10 +47,10 @@ func Damage(wlc wl.Connection, surfaceID uint32, x, y, width, height int32) erro
 	binary.LittleEndian.PutUint32(msg[12:16], uint32(y))
 	binary.LittleEndian.PutUint32(msg[16:20], uint32(width))
 	binary.LittleEndian.PutUint32(msg[20:24], uint32(height))
-	return wlc.Write(msg)
+	return msg
 }
 
-func Commit(wlc wl.Connection, surfaceID uint32) error {
+func Commit(surfaceID uint32) wl.Message {
 	size := 8
 	msg := wl.NewMessage(size)
 
@@ -59,5 +59,5 @@ func Commit(wlc wl.Connection, surfaceID uint32) error {
 	msg.WriteSize(uint16(size))
 	msg.WriteOpcode(wlSurfaceCommit)
 
-	return wlc.Write(msg)
+	return msg
 }

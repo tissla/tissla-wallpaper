@@ -30,7 +30,7 @@ const (
 	AnchorRight  uint32 = 8
 )
 
-func AckConfigure(wlc wl.Connection, layerSurfID, serial uint32) error {
+func AckConfigure(layerSurfID, serial uint32) wl.Message {
 
 	size := 12
 	msg := wl.NewMessage(size)
@@ -40,11 +40,11 @@ func AckConfigure(wlc wl.Connection, layerSurfID, serial uint32) error {
 	msg.WriteOpcode(ZwlrLayerSurfaceV1AckConfigure)
 	binary.LittleEndian.PutUint32(msg[8:12], serial)
 
-	return wlc.Write(msg)
+	return msg
 }
 
 // should always be 0, 0 for fullscreen?
-func SetSize(wlc wl.Connection, layerSurfID uint32, width, height uint32) error {
+func SetSize(layerSurfID uint32, width, height uint32) wl.Message {
 	size := 16
 	msg := wl.NewMessage(size)
 	msg.WriteID(layerSurfID)
@@ -52,27 +52,27 @@ func SetSize(wlc wl.Connection, layerSurfID uint32, width, height uint32) error 
 	msg.WriteOpcode(ZwlrLayerSurfaceV1SetSize)
 	binary.LittleEndian.PutUint32(msg[8:12], width)
 	binary.LittleEndian.PutUint32(msg[12:16], height)
-	return wlc.Write(msg)
+	return msg
 }
 
 // can be either?
-func SetAnchor(wlc wl.Connection, layerSurfID uint32, anchor uint32) error {
+func SetAnchor(layerSurfID uint32, anchor uint32) wl.Message {
 	size := 12
 	msg := wl.NewMessage(size)
 	msg.WriteID(layerSurfID)
 	msg.WriteSize(uint16(size))
 	msg.WriteOpcode(ZwlrLayerSurfaceV1SetAnchor)
 	binary.LittleEndian.PutUint32(msg[8:12], anchor)
-	return wlc.Write(msg)
+	return msg
 }
 
 // should be -1?
-func SetExclusiveZone(wlc wl.Connection, layerSurfID uint32, zone int32) error {
+func SetExclusiveZone(layerSurfID uint32, zone int32) wl.Message {
 	size := 12
 	msg := wl.NewMessage(size)
 	msg.WriteID(layerSurfID)
 	msg.WriteSize(uint16(size))
 	msg.WriteOpcode(ZwlrLayerSurfaceV1SetExlusiveZone)
 	binary.LittleEndian.PutUint32(msg[8:12], uint32(zone))
-	return wlc.Write(msg)
+	return msg
 }

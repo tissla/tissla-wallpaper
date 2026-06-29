@@ -73,27 +73,11 @@ func (w *WlConnection) WriteFd(data []byte, fd int) error {
 
 // Read WlConnection
 func (w *WlConnection) Read() ([]byte, error) {
-	header := make([]byte, 8)
-	if _, err := io.ReadFull(w.conn, header); err != nil {
-		return nil, err
-	}
-
-	msgSize := Message(header).Size() // läser 6:8, samma källa som skrivsidan
-	if msgSize < 8 {
-		return nil, fmt.Errorf("invalid message size %d", msgSize)
-	}
-	if msgSize == 8 {
-		return header, nil
-	}
-
-	rest := make([]byte, msgSize-8)
-	if _, err := io.ReadFull(w.conn, rest); err != nil {
-		return nil, err
-	}
-	return append(header, rest...), nil
+	return readMessage(w.conn)
 }
 
 // Listen starts a go-routine that listens to the WlConnection and writes the messages to a channel. Returns the channel to which messages are written
+
 func (w *WlConnection) Listen() <-chan []byte {
 	ch := make(chan []byte)
 	go func() {
@@ -107,4 +91,30 @@ func (w *WlConnection) Listen() <-chan []byte {
 		}
 	}()
 	return ch
+}
+
+// readMessage frames one Wayland message from r: read the 8-byte header, parse
+// the length out of it, then read exactly that many more bytes. io.ReadFull
+// means a message split across several reads on the stream is reassembled
+// correctly instead of being truncated.
+func readMessage(r io.Reader) ([]byte, error) {
+	header := make([]byte, 8)
+	if _, err := io.ReadFull(r, header); err != nil {
+		return nil, err
+	}
+
+	size := Message(header).Size() // läser 6:8 — samma källa som skrivsidan
+	if size < 8 {
+		return nil, fmt.Errorf("invalid message size %d", size)
+	}
+	if size == 8 {
+		return header, nil
+	}
+
+	msg := make([]byte, size)
+	copy(msg, header)
+	if _, err := io.ReadFull(r, msg[8:]); err != nil {
+		return nil, err
+	}
+	return msg, nil
 }
