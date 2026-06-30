@@ -4,6 +4,7 @@ package daemon
 import (
 	"errors"
 	"time"
+	img "tissla-wallpaper/internal/image"
 	"tissla-wallpaper/internal/protocol"
 	wl "tissla-wallpaper/internal/wayland"
 )
@@ -25,8 +26,10 @@ type Daemon struct {
 }
 
 type command struct {
-	action string
-	path   string
+	verb  string
+	path  string
+	scale img.ScaleMode
+	reply chan string
 }
 
 type Output struct {
@@ -45,10 +48,18 @@ type Output struct {
 	height uint32
 }
 
+type ActionKind int
+
+const (
+	ActionStatic ActionKind = iota
+	ActionAnimated
+)
+
 // SurfaceAction contains the actions intent and path to the resource
 type SurfaceAction struct {
-	action string
-	path   string
+	kind  ActionKind
+	path  string
+	scale img.ScaleMode
 }
 
 func New() (*Daemon, error) {

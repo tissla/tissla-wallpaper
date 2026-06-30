@@ -6,6 +6,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
 	"syscall"
 	img "tissla-wallpaper/internal/image"
@@ -48,19 +49,71 @@ func parseCommand(s string) (command, error) {
 	switch parts[0] {
 	case "set":
 		if len(parts) < 2 {
-			return command{}, errors.New("set: missing path")
+			return command{}, errors.New("set: missing arguments")
 		}
-		return command{action: "set", path: parts[1]}, nil
+		i := strings.LastIndex(parts[1], " ")
+		if i < 0 {
+			return command{}, errors.New("set: expected <path> <mode>")
+		}
+		path := parts[1][:i]
+		mode, err := img.ParseScaleMode(parts[1][i+1:])
+		if err != nil {
+			return command{}, err
+		}
+		return command{verb: "set", path: path, scale: mode}, nil
 	case "clear":
-		return command{action: "clear"}, nil
+		return command{verb: "clear"}, nil
+	case "monitors":
+		return command{verb: "monitors"}, nil
 	default:
 		return command{}, fmt.Errorf("unknown command %q", parts[0])
 	}
 }
 
+// handleCommand is used by the main loop
 func (d *Daemon) handleCommand(cmd command) error {
 
-	return nil
+	if !d.initialized {
+		return errors.New("handle command failed: daemon not initialized")
+	}
+
+	switch cmd.verb {
+	case "set":
+		act := SurfaceAction{
+			kind:  classify(cmd.path),
+			path:  cmd.path,
+			scale: cmd.scale,
+		}
+		for _, out := range d.outputs {
+			if err := d.setWpOnOutput(out, act); err != nil {
+				return err
+			}
+		}
+		cmd.reply <- fmt.Sprintf("wallpaper set: %s", cmd.path)
+		return nil
+	case "clear":
+		cmd.reply <- fmt.Sprintf("clear not implemented")
+		return errors.New("clear not implemented")
+
+	case "monitors":
+		for _, output := range d.outputs {
+			cmd.reply <- fmt.Sprintf("%s - %dx%d\n", output.hName, output.width, output.height)
+		}
+		return nil
+	default:
+		cmd.reply <- "nil"
+		return fmt.Errorf("unknown verb %q", cmd.verb)
+
+	}
+}
+
+func classify(path string) ActionKind {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".gif", ".mp4", ".webm":
+		return ActionAnimated
+	default:
+		return ActionStatic
+	}
 }
 
 func (d *Daemon) SetWallpaper(outputName string, action SurfaceAction) error {
@@ -80,11 +133,22 @@ func (d *Daemon) SetWallpaper(outputName string, action SurfaceAction) error {
 
 func (d *Daemon) setWpOnOutput(output *Output, action SurfaceAction) error {
 
+	switch action.kind {
+	case ActionStatic:
+		return d.setStatic(output, action)
+	case ActionAnimated:
+		return errors.New("not implemented")
+	default:
+		return nil
+	}
+}
+
+func (d *Daemon) setStatic(output *Output, action SurfaceAction) error {
 	h := output.height
 	w := output.width
 	path := action.path
 
-	wp, err := img.Load(path, int(w), int(h), 1)
+	wp, err := img.Load(path, int(w), int(h), action.scale)
 	if err != nil {
 		return err
 	}
@@ -110,7 +174,7 @@ func (d *Daemon) setWpOnOutput(output *Output, action SurfaceAction) error {
 	// create buffer from the pool
 	bufferID := d.allocID()
 	stride := int32(w * 4) // 4 bytes per pixel
-	if err := protocol.CreateBuffer(d.wlConn, poolID, bufferID, 0, int32(w), int32(h), stride, protocol.WlShmPixelFormatArgb8888); err != nil {
+	if err := d.send(protocol.CreateBuffer(poolID, bufferID, 0, int32(w), int32(h), stride, protocol.WlShmPixelFormatArgb8888)); err != nil {
 		return err
 	}
 
