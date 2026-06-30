@@ -52,8 +52,6 @@ func main() {
 		os.Stdout.Write(resp)
 	}
 
-	log.Printf("length of response: %d", len(resp))
-
 	if err != nil {
 		log.Fatalf("no response: %v", err)
 	}
