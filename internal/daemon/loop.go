@@ -17,12 +17,14 @@ func (d *Daemon) Run() {
 			d.handleEvent(wl.Message(raw))
 		case cmd := <-d.commands:
 			resp, err := d.handleCommand(cmd)
+			log.Printf("received command: %s", cmd.verb)
 			if err != nil {
 				// log error and move on
 				resp = "error: " + err.Error()
 				log.Printf("command: %v", err)
 			}
 
+			log.Printf("reply (%d bytes): %q", len(resp), resp)
 			if cmd.reply != nil {
 				cmd.reply <- resp
 			}

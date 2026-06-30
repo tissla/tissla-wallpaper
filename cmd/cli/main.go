@@ -2,13 +2,16 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"log"
 	"net"
 	"os"
 	"path/filepath"
+	"time"
 	img "tissla-wallpaper/internal/image"
 	"tissla-wallpaper/internal/ipc"
 )
@@ -19,7 +22,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	msg, err := handleInput(os.Args[1])
+	// parse after verb
+	flag.CommandLine.Parse(os.Args[2:])
+
+	cmd, err := handleInput(os.Args[1])
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -30,47 +36,63 @@ func main() {
 	}
 	defer conn.Close()
 
-	if _, err = io.WriteString(conn, msg); err != nil {
+	msg, err := json.Marshal(cmd)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if _, err = conn.Write(msg); err != nil {
 		log.Fatal(err)
 	}
 
 	// daemon writes its response then closes the connection
+	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+
 	resp, err := io.ReadAll(conn)
-	if err != nil {
-		log.Fatal(err)
+	if len(resp) > 0 {
+		os.Stdout.Write(resp)
 	}
-	os.Stdout.Write(resp)
+
+	log.Printf("length of response: %d", len(resp))
+
+	if err != nil {
+		log.Fatalf("no response: %v", err)
+	}
 }
 
-func handleInput(cmd string) (string, error) {
+func handleInput(cmd string) (ipc.Request, error) {
 	switch cmd {
 	case "set":
-		if len(os.Args) < 3 {
-			return "", errors.New("set: missing path")
+		if *pathPtr == "" {
+			return ipc.Request{}, errors.New("set: -path is required")
 		}
-		path := os.Args[2]
-		if _, err := os.Stat(path); err != nil {
-			return "", err
+		if _, err := os.Stat(*pathPtr); err != nil {
+			return ipc.Request{}, err
 		}
-		absPath, err := filepath.Abs(path)
+		absPath, err := filepath.Abs(*pathPtr)
 		if err != nil {
-			return "", err
+			return ipc.Request{}, err
 		}
-		mode := "fill"
-		if len(os.Args) > 3 {
-			if _, err := img.ParseScaleMode(os.Args[3]); err != nil {
-				return "", err
-			}
-			mode = os.Args[3]
+		if _, err := img.ParseScaleMode(*modePtr); err != nil {
+			return ipc.Request{}, err
 		}
-		return "set " + absPath + " " + mode, nil
+
+		return ipc.Request{
+			Verb:   "set",
+			Path:   absPath,
+			Output: *outputPtr,
+			Mode:   *modePtr,
+		}, nil
 	case "clear":
-		return "clear", nil
+		return ipc.Request{
+			Verb: "clear",
+		}, nil
 	case "monitors":
-		return "monitors", nil
+		return ipc.Request{
+			Verb: "monitors",
+		}, nil
 	default:
 		usage()
-		return "", errors.New("unknown command")
+		return ipc.Request{}, errors.New("unknown command")
 	}
 }
 

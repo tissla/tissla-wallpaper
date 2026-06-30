@@ -1,8 +1,10 @@
 package daemon
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"os"
@@ -16,6 +18,7 @@ import (
 )
 
 // HandleCommands parses the commands incoming from the client and puts it in the daemons command-channel
+
 func (d *Daemon) HandleCommands() {
 	sockPath := ipc.SocketPath()
 	os.Remove(sockPath)
@@ -31,60 +34,79 @@ func (d *Daemon) HandleCommands() {
 		if err != nil {
 			continue
 		}
-		buf := make([]byte, 1024)
-		n, _ := conn.Read(buf)
-		conn.Close()
-
-		cmd, err := parseCommand(string(buf[:n]))
-		if err != nil {
-			log.Printf("parse command: %v", err)
-			continue
-		}
-		d.commands <- cmd
+		d.serveClient(conn)
 	}
 }
 
-func parseCommand(s string) (command, error) {
-	parts := strings.SplitN(strings.TrimSpace(s), " ", 2)
-	switch parts[0] {
-	case "set":
-		if len(parts) < 2 {
-			return command{}, errors.New("set: missing arguments")
-		}
-		i := strings.LastIndex(parts[1], " ")
-		if i < 0 {
-			return command{}, errors.New("set: expected <path> <mode>")
-		}
-		path := parts[1][:i]
-		mode, err := img.ParseScaleMode(parts[1][i+1:])
+func (d *Daemon) serveClient(conn net.Conn) {
+	defer conn.Close()
+
+	var req ipc.Request
+	if err := json.NewDecoder(conn).Decode(&req); err != nil {
+		fmt.Fprintf(conn, "error: %v\n", err)
+		return
+	}
+
+	cmd, err := toCommand(req)
+	if err != nil {
+		fmt.Fprintf(conn, "error: %v\n", err)
+		return
+	}
+
+	cmd.reply = make(chan string, 1)
+	d.commands <- cmd
+	io.WriteString(conn, <-cmd.reply)
+}
+
+func toCommand(req ipc.Request) (command, error) {
+	cmd := command{verb: req.Verb, path: req.Path, output: req.Output}
+	if req.Verb == "set" {
+		mode, err := img.ParseScaleMode(req.Mode)
 		if err != nil {
 			return command{}, err
 		}
-		return command{verb: "set", path: path, scale: mode}, nil
-	case "clear":
-		return command{verb: "clear"}, nil
-	case "monitors":
-		return command{verb: "monitors"}, nil
-	default:
-		return command{}, fmt.Errorf("unknown command %q", parts[0])
+		cmd.scale = mode
 	}
+	return cmd, nil
 }
 
-// handleCommand is used by the main loop
+func parseCommand(data []byte) (command, error) {
+	var req ipc.Request
+	if err := json.Unmarshal(data, &req); err != nil {
+		return command{}, err
+	}
+	cmd := command{verb: req.Verb, path: req.Path, output: req.Output}
+	if req.Verb == "set" {
+		mode, err := img.ParseScaleMode(req.Mode)
+		if err != nil {
+			return command{}, err
+		}
+		cmd.scale = mode
+	}
+	return cmd, nil
+} // handleCommand is used by the main loop
 
 func (d *Daemon) handleCommand(cmd command) (string, error) {
 	if !d.initialized {
 		return "", errors.New("daemon not initialized")
 	}
+
 	switch cmd.verb {
 	case "set":
 		act := SurfaceAction{kind: classify(cmd.path), path: cmd.path, scale: cmd.scale}
+		hits := 0
 		for _, out := range d.outputs {
-			if err := d.setWpOnOutput(out, act); err != nil {
-				return "", err
+			if cmd.output == "" || cmd.output == out.hName {
+				if err := d.setWpOnOutput(out, act); err != nil {
+					return "", err
+				}
+				hits++
 			}
 		}
-		return "wallpaper set: " + cmd.path + "\n", nil
+		if hits == 0 {
+			return "", fmt.Errorf("no output named %q", cmd.output)
+		}
+		return fmt.Sprintf("wallpaper set on %d output(s): %s\n", hits, cmd.path), nil
 	case "clear":
 		return "", errors.New("clear not implemented")
 	case "monitors":

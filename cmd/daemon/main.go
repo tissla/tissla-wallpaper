@@ -13,6 +13,8 @@ func main() {
 	}
 
 	go d.HandleCommands()
+
+	log.Printf("Starting tissla-wallpaperd..")
 	d.Run()
 
 }

@@ -33,6 +33,7 @@ func (d *Daemon) handleOutputEvent(msg wl.Message, out *Output) error {
 	case protocol.WlOutputName:
 		strLen := binary.LittleEndian.Uint32(msg.Data()[0:4])
 		out.hName = string(msg.Data()[4 : 4+strLen-1])
+		log.Printf("output name set: %s", out.hName)
 	}
 
 	return nil

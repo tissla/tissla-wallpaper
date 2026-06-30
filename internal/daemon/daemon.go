@@ -3,6 +3,7 @@ package daemon
 
 import (
 	"errors"
+	"log"
 	"time"
 	img "tissla-wallpaper/internal/image"
 	"tissla-wallpaper/internal/protocol"
@@ -26,10 +27,11 @@ type Daemon struct {
 }
 
 type command struct {
-	verb  string
-	path  string
-	scale img.ScaleMode
-	reply chan string
+	verb   string
+	path   string
+	scale  img.ScaleMode
+	output string
+	reply  chan string
 }
 
 type Output struct {
@@ -149,6 +151,8 @@ func (d *Daemon) init() error {
 
 	// set to true when finished
 	d.initialized = true
+	log.Printf("init complete: %d outputs (compositor=%d shm=%d layerShell=%d)",
+		len(d.outputs), d.compositor, d.shm, d.layerShell)
 	return nil
 }
 
