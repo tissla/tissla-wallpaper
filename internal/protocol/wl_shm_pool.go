@@ -12,7 +12,7 @@ const (
 	wlShmPoolResize       = 2
 )
 
-func CreateBuffer(wlc wl.Connection, poolID, newID uint32, offset, width, height, stride int32, format uint32) error {
+func CreateBuffer(poolID, newID uint32, offset, width, height, stride int32, format uint32) wl.Message {
 
 	size := 32 //8 + (6 * 4)
 	msg := wl.NewMessage(size)
@@ -28,10 +28,10 @@ func CreateBuffer(wlc wl.Connection, poolID, newID uint32, offset, width, height
 	binary.LittleEndian.PutUint32(msg[24:28], uint32(stride))
 	binary.LittleEndian.PutUint32(msg[28:32], format)
 
-	return wlc.Write(msg)
+	return msg
 }
 
-func Destroy(wlc wl.Connection, poolID uint32) error {
+func Destroy(poolID uint32) wl.Message {
 	size := 8
 
 	msg := wl.NewMessage(size)
@@ -39,10 +39,10 @@ func Destroy(wlc wl.Connection, poolID uint32) error {
 	msg.WriteSize(uint16(size))
 	msg.WriteOpcode(wlShmPoolDestroy)
 
-	return wlc.Write(msg)
+	return msg
 }
 
-func Resize(wlc wl.Connection, poolID uint32, newSize int) error {
+func Resize(poolID uint32, newSize int) wl.Message {
 
 	size := 12 // 8 + 4
 	msg := wl.NewMessage(size)
@@ -53,6 +53,6 @@ func Resize(wlc wl.Connection, poolID uint32, newSize int) error {
 
 	binary.LittleEndian.PutUint32(msg[8:12], uint32(newSize))
 
-	return wlc.Write(msg)
+	return msg
 
 }
