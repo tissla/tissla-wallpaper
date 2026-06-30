@@ -208,3 +208,39 @@ func TestFitLetterboxIsBlack(t *testing.T) {
 		t.Errorf("bottom letterbox = B%d G%d R%d A%d, want opaque black", b, g, r, a)
 	}
 }
+
+// TestLoadIntoMatchesLoad: LoadInto writing into a caller buffer must produce
+// byte-identical output to Load allocating its own.
+func TestLoadIntoMatchesLoad(t *testing.T) {
+	path := writeSolidPNG(t, 300, 200, color.RGBA{R: 30, G: 90, B: 150, A: 255})
+	const w, h = 256, 256
+
+	want, err := Load(path, w, h, ScaleFit)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	got := make([]byte, w*h*4)
+	if err := LoadInto(got, path, w, h, ScaleFit); err != nil {
+		t.Fatalf("LoadInto: %v", err)
+	}
+	for i := range got {
+		if got[i] != want.Data[i] {
+			t.Fatalf("byte %d differs: LoadInto=%d Load=%d", i, got[i], want.Data[i])
+		}
+	}
+}
+
+func TestLoadIntoRejectsWrongSize(t *testing.T) {
+	path := writeSolidPNG(t, 64, 64, color.RGBA{A: 255})
+	small := make([]byte, 10)
+	if err := LoadInto(small, path, 100, 100, ScaleFill); err == nil {
+		t.Error("expected error for undersized dst")
+	}
+}
+
+func TestLoadIntoRejectsZeroDims(t *testing.T) {
+	path := writeSolidPNG(t, 64, 64, color.RGBA{A: 255})
+	if err := LoadInto(nil, path, 0, 0, ScaleFill); err == nil {
+		t.Error("expected error for zero dims")
+	}
+}

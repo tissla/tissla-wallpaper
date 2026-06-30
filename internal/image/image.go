@@ -1,7 +1,9 @@
-// package image
+// Package image decodes and scales images into the premultiplied BGRA byte
+// layout Wayland's ARGB8888 buffers expect.
 package image
 
 import (
+	"fmt"
 	"image"
 	_ "image/jpeg"
 	_ "image/png"
@@ -14,47 +16,67 @@ type Image struct {
 	Data   []byte // ARGB8888 (little-endian: B,G,R,A bytes), premultiplied, row-major
 }
 
-// Load decodes the image at path and scales it to exactly width x height using
-// mode and a bilinear resampler. The returned Data is always width*height*4
-// bytes, so it matches a wl_buffer described with those dimensions and a
-// width*4 stride.
-//
-// If width or height is non-positive (output size not yet known), Load returns
-// the source at its native size with no scaling.
+// Load decodes and scales the image at path to width x height, allocating the
+// result. Convenient for callers that want an owned buffer (e.g. tests). If
+// width or height is non-positive, Load falls back to the native size.
 func Load(path string, width, height int, mode ScaleMode) (*Image, error) {
+	src, err := decode(path)
+	if err != nil {
+		return nil, err
+	}
+	if width <= 0 || height <= 0 {
+		b := src.Bounds()
+		width, height = b.Dx(), b.Dy()
+		mode = ScaleStretch
+	}
+	dst := make([]byte, width*height*4)
+	renderInto(dst, src, width, height, mode)
+	return &Image{Width: width, Height: height, Data: dst}, nil
+}
+
+// LoadInto decodes the image at path and renders it directly into dst, which
+// must be exactly width*height*4 bytes (e.g. an shm mapping). Unlike Load it
+// allocates no result buffer and makes no extra copy, so the only full-frame
+// buffers alive are the decoded source and its BGRA form.
+func LoadInto(dst []byte, path string, width, height int, mode ScaleMode) error {
+	if width <= 0 || height <= 0 {
+		return fmt.Errorf("LoadInto: output size unknown (%dx%d)", width, height)
+	}
+	if len(dst) != width*height*4 {
+		return fmt.Errorf("LoadInto: dst has %d bytes, want %d", len(dst), width*height*4)
+	}
+	src, err := decode(path)
+	if err != nil {
+		return err
+	}
+	renderInto(dst, src, width, height, mode)
+	return nil
+}
+
+func decode(path string) (image.Image, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
 	}
 	defer f.Close()
-
-	decoded, _, err := image.Decode(f)
-	if err != nil {
-		return nil, err
-	}
-
-	src := toBGRA(decoded)
-
-	if width <= 0 || height <= 0 {
-		return &Image{Width: src.w, Height: src.h, Data: src.pix}, nil
-	}
-
-	srcRect, dstRect := scaleRects(src.w, src.h, width, height, mode)
-	data := resample(src, srcRect, width, height, dstRect)
-	return &Image{Width: width, Height: height, Data: data}, nil
+	img, _, err := image.Decode(f)
+	return img, err
 }
 
-// bgra is a 0-based, premultiplied B,G,R,A pixel buffer. Converting the decoded
-// image into this form once drops the image.Image bounds offset and gives the
-// resampler tight, predictable indexing.
+func renderInto(dst []byte, src image.Image, width, height int, mode ScaleMode) {
+	sb := toBGRA(src)
+	srcRect, dstRect := scaleRects(sb.w, sb.h, width, height, mode)
+	resampleInto(dst, sb, srcRect, width, height, dstRect)
+}
+
+// bgra is a 0-based, premultiplied B,G,R,A pixel buffer.
 type bgra struct {
 	w, h int
 	pix  []byte
 }
 
 // toBGRA converts any image.Image to a premultiplied BGRA buffer. RGBA() already
-// returns alpha-premultiplied 16-bit channels, which is what ARGB8888 wants;
-// >>8 takes them to 8-bit.
+// returns alpha-premultiplied 16-bit channels; >>8 takes them to 8-bit.
 func toBGRA(img image.Image) *bgra {
 	b := img.Bounds()
 	w, h := b.Dx(), b.Dy()
@@ -72,20 +94,24 @@ func toBGRA(img image.Image) *bgra {
 	return &bgra{w: w, h: h, pix: pix}
 }
 
-// resample draws src[srcRect] into a dstW x dstH buffer at dstRect using
-// bilinear interpolation, leaving any area outside dstRect (letterbox in fit
-// mode) opaque black. Interpolating premultiplied channels directly is correct
-// and avoids dark halos near transparent edges.
-func resample(src *bgra, srcRect image.Rectangle, dstW, dstH int, dstRect image.Rectangle) []byte {
-	dst := make([]byte, dstW*dstH*4)
-	for i := 3; i < len(dst); i += 4 { // opaque black background
-		dst[i] = 255
+// resampleInto draws src[srcRect] into dst (a dstW x dstH BGRA buffer) at
+// dstRect using bilinear interpolation. Areas outside dstRect (letterbox in fit
+// mode) are filled opaque black. dst is written in place; no allocation.
+func resampleInto(dst []byte, src *bgra, srcRect image.Rectangle, dstW, dstH int, dstRect image.Rectangle) {
+	// Background only matters where the image won't cover the surface, i.e. the
+	// letterbox in fit mode. For fill/stretch the image spans the whole buffer,
+	// so skip the redundant fill.
+	covers := dstRect.Min.X == 0 && dstRect.Min.Y == 0 && dstRect.Dx() == dstW && dstRect.Dy() == dstH
+	if !covers {
+		for i := 0; i+3 < len(dst); i += 4 {
+			dst[i+0], dst[i+1], dst[i+2], dst[i+3] = 0, 0, 0, 255 // opaque black
+		}
 	}
 
 	sw, sh := srcRect.Dx(), srcRect.Dy()
 	dw, dh := dstRect.Dx(), dstRect.Dy()
 	if sw == 0 || sh == 0 || dw == 0 || dh == 0 {
-		return dst
+		return
 	}
 
 	for ly := 0; ly < dh; ly++ {
@@ -133,12 +159,10 @@ func resample(src *bgra, srcRect image.Rectangle, dstW, dstH int, dstRect image.
 			}
 		}
 	}
-	return dst
 }
 
 // scaleRects computes the source sub-rectangle to sample and the destination
-// sub-rectangle to draw into, for a source of size (sw,sh) onto a destination
-// of size (dw,dh) under mode. All rectangles are 0-based.
+// sub-rectangle to draw into. All rectangles are 0-based.
 //
 //	fill    cover:   crop source to the destination aspect, draw to the full destination
 //	fit     contain: draw the whole source into a centered aspect-correct box, letterbox the rest
@@ -150,7 +174,7 @@ func scaleRects(sw, sh, dw, dh int, mode ScaleMode) (src, dst image.Rectangle) {
 
 	case ScaleFit:
 		src = image.Rect(0, 0, sw, sh)
-		if sw*dh > dw*sh { // source wider than destination -> width-constrained
+		if sw*dh > dw*sh {
 			fitH := dw * sh / sw
 			y0 := (dh - fitH) / 2
 			dst = image.Rect(0, y0, dw, y0+fitH)
@@ -163,7 +187,7 @@ func scaleRects(sw, sh, dw, dh int, mode ScaleMode) (src, dst image.Rectangle) {
 
 	default: // ScaleFill
 		dst = image.Rect(0, 0, dw, dh)
-		if sw*dh > dw*sh { // source wider -> crop width
+		if sw*dh > dw*sh {
 			cropW := sh * dw / dh
 			x0 := (sw - cropW) / 2
 			src = image.Rect(x0, 0, x0+cropW, sh)

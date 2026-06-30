@@ -17,8 +17,8 @@ import (
 	wl "tissla-wallpaper/internal/wayland"
 )
 
-// HandleCommands parses the commands incoming from the client and puts it in the daemons command-channel
-
+// HandleCommands accepts client connections and forwards each request to the
+// loop, serving one client to completion before accepting the next.
 func (d *Daemon) HandleCommands() {
 	sockPath := ipc.SocketPath()
 	os.Remove(sockPath)
@@ -58,6 +58,8 @@ func (d *Daemon) serveClient(conn net.Conn) {
 	io.WriteString(conn, <-cmd.reply)
 }
 
+// toCommand translates a wire Request into the daemon's internal command,
+// parsing the scale mode once at the boundary.
 func toCommand(req ipc.Request) (command, error) {
 	cmd := command{verb: req.Verb, path: req.Path, output: req.Output}
 	if req.Verb == "set" {
@@ -70,22 +72,7 @@ func toCommand(req ipc.Request) (command, error) {
 	return cmd, nil
 }
 
-func parseCommand(data []byte) (command, error) {
-	var req ipc.Request
-	if err := json.Unmarshal(data, &req); err != nil {
-		return command{}, err
-	}
-	cmd := command{verb: req.Verb, path: req.Path, output: req.Output}
-	if req.Verb == "set" {
-		mode, err := img.ParseScaleMode(req.Mode)
-		if err != nil {
-			return command{}, err
-		}
-		cmd.scale = mode
-	}
-	return cmd, nil
-} // handleCommand is used by the main loop
-
+// handleCommand runs in the loop thread and returns the response to send back.
 func (d *Daemon) handleCommand(cmd command) (string, error) {
 	if !d.initialized {
 		return "", errors.New("daemon not initialized")
@@ -107,10 +94,25 @@ func (d *Daemon) handleCommand(cmd command) (string, error) {
 			return "", fmt.Errorf("no output named %q", cmd.output)
 		}
 		return fmt.Sprintf("wallpaper set on %d output(s): %s\n", hits, cmd.path), nil
+
 	case "clear":
-		return "", errors.New("clear not implemented")
+		hits := 0
+		for _, out := range d.outputs {
+			if cmd.output == "" || cmd.output == out.hName {
+				if err := d.clearOutput(out); err != nil {
+					return "", err
+				}
+				hits++
+			}
+		}
+		if hits == 0 {
+			return "", fmt.Errorf("no output named %q", cmd.output)
+		}
+		return fmt.Sprintf("cleared %d output(s)\n", hits), nil
+
 	case "monitors":
 		return d.monitorList(), nil
+
 	default:
 		return "", fmt.Errorf("unknown verb %q", cmd.verb)
 	}
@@ -141,27 +143,24 @@ func classify(path string) ActionKind {
 }
 
 func (d *Daemon) setWpOnOutput(output *Output, action SurfaceAction) error {
-
 	switch action.kind {
 	case ActionStatic:
 		return d.setStatic(output, action)
 	case ActionAnimated:
-		return errors.New("not implemented")
+		return errors.New("animated wallpapers not implemented")
 	default:
-		return nil
+		return fmt.Errorf("unknown action kind %d", action.kind)
 	}
 }
 
 func (d *Daemon) setStatic(output *Output, action SurfaceAction) error {
 	w := output.width
 	h := output.height
-
-	wp, err := img.Load(action.path, int(w), int(h), action.scale)
-	if err != nil {
-		return err
+	if w == 0 || h == 0 {
+		return fmt.Errorf("output %q not configured yet", output.hName)
 	}
 
-	size := len(wp.Data)
+	size := int(w * h * 4)
 	shm, err := wl.NewShmBuffer(size)
 	if err != nil {
 		return err
@@ -170,7 +169,10 @@ func (d *Daemon) setStatic(output *Output, action SurfaceAction) error {
 	// memory alive via the pool, so drop our view when we're done.
 	defer syscall.Munmap(shm.Data)
 
-	copy(shm.Data, wp.Data)
+	// render straight into the shm mapping: no intermediate result buffer, no copy
+	if err := img.LoadInto(shm.Data, action.path, int(w), int(h), action.scale); err != nil {
+		return err
+	}
 
 	poolID := d.allocID()
 	if err := d.sendFd(protocol.CreatePool(d.shm, poolID, size), shm.Fd); err != nil {

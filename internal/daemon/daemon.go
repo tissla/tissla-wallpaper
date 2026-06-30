@@ -157,6 +157,7 @@ func (d *Daemon) init() error {
 	d.initialized = true
 	log.Printf("init complete: %d outputs (compositor=%d shm=%d layerShell=%d)",
 		len(d.outputs), d.compositor, d.shm, d.layerShell)
+
 	return nil
 }
 
