@@ -71,40 +71,42 @@ func parseCommand(s string) (command, error) {
 }
 
 // handleCommand is used by the main loop
-func (d *Daemon) handleCommand(cmd command) error {
 
+func (d *Daemon) handleCommand(cmd command) (string, error) {
 	if !d.initialized {
-		return errors.New("handle command failed: daemon not initialized")
+		return "", errors.New("daemon not initialized")
 	}
-
 	switch cmd.verb {
 	case "set":
-		act := SurfaceAction{
-			kind:  classify(cmd.path),
-			path:  cmd.path,
-			scale: cmd.scale,
-		}
+		act := SurfaceAction{kind: classify(cmd.path), path: cmd.path, scale: cmd.scale}
 		for _, out := range d.outputs {
 			if err := d.setWpOnOutput(out, act); err != nil {
-				return err
+				return "", err
 			}
 		}
-		cmd.reply <- fmt.Sprintf("wallpaper set: %s", cmd.path)
-		return nil
+		return "wallpaper set: " + cmd.path + "\n", nil
 	case "clear":
-		cmd.reply <- fmt.Sprintf("clear not implemented")
-		return errors.New("clear not implemented")
-
+		return "", errors.New("clear not implemented")
 	case "monitors":
-		for _, output := range d.outputs {
-			cmd.reply <- fmt.Sprintf("%s - %dx%d\n", output.hName, output.width, output.height)
-		}
-		return nil
+		return d.monitorList(), nil
 	default:
-		cmd.reply <- "nil"
-		return fmt.Errorf("unknown verb %q", cmd.verb)
-
+		return "", fmt.Errorf("unknown verb %q", cmd.verb)
 	}
+}
+
+func (d *Daemon) monitorList() string {
+	if len(d.outputs) == 0 {
+		return "no outputs\n"
+	}
+	var b strings.Builder
+	for _, out := range d.outputs {
+		name := out.hName
+		if name == "" {
+			name = "(unnamed)"
+		}
+		fmt.Fprintf(&b, "%s - %dx%d\n", name, out.width, out.height)
+	}
+	return b.String()
 }
 
 func classify(path string) ActionKind {
@@ -114,21 +116,6 @@ func classify(path string) ActionKind {
 	default:
 		return ActionStatic
 	}
-}
-
-func (d *Daemon) SetWallpaper(outputName string, action SurfaceAction) error {
-
-	// find output
-	for _, output := range d.outputs {
-		if outputName == output.hName {
-			err := d.setWpOnOutput(output, action)
-			if err != nil {
-				return err
-			}
-		}
-	}
-
-	return nil
 }
 
 func (d *Daemon) setWpOnOutput(output *Output, action SurfaceAction) error {

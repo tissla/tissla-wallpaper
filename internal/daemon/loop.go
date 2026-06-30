@@ -5,7 +5,7 @@ import (
 	wl "tissla-wallpaper/internal/wayland"
 )
 
-// Run() contains the daemons main loop, which reads the event- and command-channels respectively.
+// Run contains the daemons main loop, which reads the event- and command-channels respectively.
 func (d *Daemon) Run() {
 	events := d.wlConn.Listen()
 	for {
@@ -16,9 +16,15 @@ func (d *Daemon) Run() {
 			}
 			d.handleEvent(wl.Message(raw))
 		case cmd := <-d.commands:
-			if err := d.handleCommand(cmd); err != nil {
+			resp, err := d.handleCommand(cmd)
+			if err != nil {
 				// log error and move on
+				resp = "error: " + err.Error()
 				log.Printf("command: %v", err)
+			}
+
+			if cmd.reply != nil {
+				cmd.reply <- resp
 			}
 		}
 	}

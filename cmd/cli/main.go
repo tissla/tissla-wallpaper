@@ -4,6 +4,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"os"
@@ -13,32 +14,32 @@ import (
 )
 
 func main() {
-
 	if len(os.Args) < 2 {
+		usage()
 		os.Exit(1)
 	}
 
-	cmd := os.Args[1]
-
-	// command parsing
-	msg, err := handleInput(cmd)
+	msg, err := handleInput(os.Args[1])
 	if err != nil {
 		log.Fatal(err)
 	}
-	if msg == "" {
-		os.Exit(1)
-	}
 
-	// write to socket
-	sPath := ipc.SocketPath()
-
-	conn, err := net.Dial("unix", sPath)
+	conn, err := net.Dial("unix", ipc.SocketPath())
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer conn.Close()
 
-	conn.Write([]byte(msg))
+	if _, err = io.WriteString(conn, msg); err != nil {
+		log.Fatal(err)
+	}
+
+	// daemon writes its response then closes the connection
+	resp, err := io.ReadAll(conn)
+	if err != nil {
+		log.Fatal(err)
+	}
+	os.Stdout.Write(resp)
 }
 
 func handleInput(cmd string) (string, error) {
@@ -55,7 +56,6 @@ func handleInput(cmd string) (string, error) {
 		if err != nil {
 			return "", err
 		}
-
 		mode := "fill"
 		if len(os.Args) > 3 {
 			if _, err := img.ParseScaleMode(os.Args[3]); err != nil {
@@ -63,7 +63,6 @@ func handleInput(cmd string) (string, error) {
 			}
 			mode = os.Args[3]
 		}
-
 		return "set " + absPath + " " + mode, nil
 	case "clear":
 		return "clear", nil
@@ -76,5 +75,5 @@ func handleInput(cmd string) (string, error) {
 }
 
 func usage() {
-	fmt.Println("how to use")
+	fmt.Println("usage: wallpaperctl set <path> [fill|fit|stretch] | clear | monitors")
 }
