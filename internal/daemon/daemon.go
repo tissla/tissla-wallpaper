@@ -4,7 +4,6 @@ package daemon
 import (
 	"errors"
 	"log"
-	"time"
 	img "tissla-wallpaper/internal/image"
 	"tissla-wallpaper/internal/protocol"
 	wl "tissla-wallpaper/internal/wayland"
@@ -12,7 +11,6 @@ import (
 
 type Daemon struct {
 	wlConn wl.Connection
-	est    time.Time
 
 	nextID uint32
 
@@ -76,9 +74,9 @@ func New() (*Daemon, error) {
 	}
 
 	d := &Daemon{
-		wlConn:   conn,
-		est:      time.Now().UTC(),
-		commands: make(chan command),
+		wlConn:         conn,
+		commands:       make(chan command),
+		pendingRelease: make(map[uint32]uint32),
 	}
 
 	if err := d.init(); err != nil {
