@@ -14,6 +14,13 @@ func (d *Daemon) handleEvent(msg wl.Message) {
 	case protocol.DisplayID:
 		// TODO: wl_display.error
 	default:
+
+		if _, ok := d.pendingRelease[msg.ObjectID()]; ok {
+			if msg.Opcode() == protocol.WlBufferRelease {
+				d.releaseBuffer(msg.ObjectID())
+			}
+			return
+		}
 		for _, out := range d.outputs {
 			if msg.ObjectID() == out.layerSurf {
 				if err := d.handleLayerSurfEvent(msg, out); err != nil {
@@ -44,11 +51,9 @@ func (d *Daemon) handleLayerSurfEvent(msg wl.Message, out *Output) error {
 
 	case protocol.ZwlrLayerSurfaceV1Configure:
 		serial := binary.LittleEndian.Uint32(msg.Data()[0:4])
-		width := binary.LittleEndian.Uint32(msg.Data()[4:8])
-		height := binary.LittleEndian.Uint32(msg.Data()[8:12])
 
-		out.width = width
-		out.height = height
+		out.width = binary.LittleEndian.Uint32(msg.Data()[4:8])
+		out.height = binary.LittleEndian.Uint32(msg.Data()[8:12])
 
 		// sometime after this, use commit
 		if err := d.send(protocol.AckConfigure(out.layerSurf, serial)); err != nil {

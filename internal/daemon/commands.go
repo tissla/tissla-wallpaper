@@ -153,11 +153,10 @@ func (d *Daemon) setWpOnOutput(output *Output, action SurfaceAction) error {
 }
 
 func (d *Daemon) setStatic(output *Output, action SurfaceAction) error {
-	h := output.height
 	w := output.width
-	path := action.path
+	h := output.height
 
-	wp, err := img.Load(path, int(w), int(h), action.scale)
+	wp, err := img.Load(action.path, int(w), int(h), action.scale)
 	if err != nil {
 		return err
 	}
@@ -167,39 +166,67 @@ func (d *Daemon) setStatic(output *Output, action SurfaceAction) error {
 	if err != nil {
 		return err
 	}
+	// our mapping is only needed to write the pixels; the compositor keeps the
+	// memory alive via the pool, so drop our view when we're done.
+	defer syscall.Munmap(shm.Data)
 
-	// put data in buffer
 	copy(shm.Data, wp.Data)
 
-	// send fd to wayland
 	poolID := d.allocID()
 	if err := d.sendFd(protocol.CreatePool(d.shm, poolID, size), shm.Fd); err != nil {
 		return err
 	}
-
-	// close fd since mmap now holds a reference
+	// the fd was duplicated into the socket on send; the pool holds the memory now
 	syscall.Close(shm.Fd)
 
-	// create buffer from the pool
 	bufferID := d.allocID()
-	stride := int32(w * 4) // 4 bytes per pixel
+	stride := int32(w * 4)
 	if err := d.send(protocol.CreateBuffer(poolID, bufferID, 0, int32(w), int32(h), stride, protocol.WlShmPixelFormatArgb8888)); err != nil {
 		return err
 	}
 
-	// if we got to this point, save poolID and bufferID to the output-struct
+	// queue the previous buffer for destruction once the compositor releases it
+	if output.bufferID != 0 {
+		d.pendingRelease[output.bufferID] = output.poolID
+	}
 	output.bufferID = bufferID
 	output.poolID = poolID
 
-	// connect buffer to surface
 	if err := d.send(protocol.Attach(output.surface, bufferID, 0, 0)); err != nil {
 		return err
 	}
 	if err := d.send(protocol.Damage(output.surface, 0, 0, int32(w), int32(h))); err != nil {
 		return err
 	}
+	return d.send(protocol.Commit(output.surface))
+}
+
+// clearOutput blanks an output's surface and queues its buffer for destruction.
+func (d *Daemon) clearOutput(output *Output) error {
+	if output.bufferID == 0 {
+		return nil // nothing set
+	}
+	// attaching a null buffer unmaps the surface; commit applies it
+	if err := d.send(protocol.Attach(output.surface, 0, 0, 0)); err != nil {
+		return err
+	}
 	if err := d.send(protocol.Commit(output.surface)); err != nil {
 		return err
 	}
+	d.pendingRelease[output.bufferID] = output.poolID
+	output.bufferID = 0
+	output.poolID = 0
 	return nil
+}
+
+// releaseBuffer destroys a buffer and its pool after the compositor has
+// released it, freeing the backing memory.
+func (d *Daemon) releaseBuffer(bufferID uint32) {
+	poolID, ok := d.pendingRelease[bufferID]
+	if !ok {
+		return
+	}
+	d.send(protocol.DestroyBuffer(bufferID))
+	d.send(protocol.Destroy(poolID))
+	delete(d.pendingRelease, bufferID)
 }

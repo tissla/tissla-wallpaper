@@ -23,6 +23,10 @@ type Daemon struct {
 	outputs  []*Output
 	commands chan command
 
+	// buffers waiting to be destroyed when the compositor sends wl_buffer.release
+	// bufferID -> poolID
+	pendingRelease map[uint32]uint32
+
 	initialized bool
 }
 
