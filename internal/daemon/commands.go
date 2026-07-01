@@ -187,10 +187,8 @@ func (d *Daemon) setStatic(output *Output, action SurfaceAction) error {
 		return err
 	}
 
-	// queue the previous buffer for destruction once the compositor releases it
-	if output.bufferID != 0 {
-		d.pendingRelease[output.bufferID] = output.poolID
-	}
+	// link the pool and buffer in the d.buffers map
+	d.buffers[bufferID] = poolID
 	output.bufferID = bufferID
 	output.poolID = poolID
 
@@ -203,19 +201,15 @@ func (d *Daemon) setStatic(output *Output, action SurfaceAction) error {
 	return d.send(protocol.Commit(output.surface))
 }
 
-// clearOutput blanks an output's surface and queues its buffer for destruction.
+// clearOutput blanks an output's surface. the buffer is released by the compositor and destroyed by releaseBuffer
+
 func (d *Daemon) clearOutput(output *Output) error {
-	if output.bufferID == 0 {
-		return nil // nothing set
-	}
-	// attaching a null buffer unmaps the surface; commit applies it
 	if err := d.send(protocol.Attach(output.surface, 0, 0, 0)); err != nil {
 		return err
 	}
 	if err := d.send(protocol.Commit(output.surface)); err != nil {
 		return err
 	}
-	d.pendingRelease[output.bufferID] = output.poolID
 	output.bufferID = 0
 	output.poolID = 0
 	return nil
@@ -224,11 +218,21 @@ func (d *Daemon) clearOutput(output *Output) error {
 // releaseBuffer destroys a buffer and its pool after the compositor has
 // released it, freeing the backing memory.
 func (d *Daemon) releaseBuffer(bufferID uint32) {
-	poolID, ok := d.pendingRelease[bufferID]
+	poolID, ok := d.buffers[bufferID]
 	if !ok {
 		return
 	}
+	log.Printf("releasing buffer %d (pool %d)", bufferID, poolID)
 	d.send(protocol.DestroyBuffer(bufferID))
 	d.send(protocol.Destroy(poolID))
-	delete(d.pendingRelease, bufferID)
+	delete(d.buffers, bufferID)
+
+	// if this was an output's current buffer, forget it (the wallpaper stays
+	// visible via the compositor's own copy)
+	for _, out := range d.outputs {
+		if out.bufferID == bufferID {
+			out.bufferID = 0
+			out.poolID = 0
+		}
+	}
 }

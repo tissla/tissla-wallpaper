@@ -23,7 +23,7 @@ type Daemon struct {
 
 	// buffers waiting to be destroyed when the compositor sends wl_buffer.release
 	// bufferID -> poolID
-	pendingRelease map[uint32]uint32
+	buffers map[uint32]uint32
 
 	initialized bool
 }
@@ -74,9 +74,9 @@ func New() (*Daemon, error) {
 	}
 
 	d := &Daemon{
-		wlConn:         conn,
-		commands:       make(chan command),
-		pendingRelease: make(map[uint32]uint32),
+		wlConn:   conn,
+		commands: make(chan command),
+		buffers:  make(map[uint32]uint32),
 	}
 
 	if err := d.init(); err != nil {

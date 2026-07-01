@@ -17,7 +17,7 @@ func (d *Daemon) Run() {
 			d.handleEvent(wl.Message(raw))
 		case cmd := <-d.commands:
 			resp, err := d.handleCommand(cmd)
-			log.Printf("received command: ", cmd.verb)
+			log.Printf("received command: %s", cmd.verb)
 			if err != nil {
 				// log error and move on
 				resp = "error: " + err.Error()

@@ -15,7 +15,7 @@ func (d *Daemon) handleEvent(msg wl.Message) {
 		// TODO: wl_display.error
 	default:
 
-		if _, ok := d.pendingRelease[msg.ObjectID()]; ok {
+		if _, ok := d.buffers[msg.ObjectID()]; ok {
 			if msg.Opcode() == protocol.WlBufferRelease {
 				d.releaseBuffer(msg.ObjectID())
 			}
