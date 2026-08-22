@@ -222,13 +222,12 @@ func (d *Daemon) releaseBuffer(bufferID uint32) {
 	if !ok {
 		return
 	}
-	log.Printf("releasing buffer %d (pool %d)", bufferID, poolID)
 	d.send(protocol.DestroyBuffer(bufferID))
 	d.send(protocol.Destroy(poolID))
 	delete(d.buffers, bufferID)
 
-	// if this was an output's current buffer, forget it (the wallpaper stays
-	// visible via the compositor's own copy)
+	// if this was an outputs current buffer, forget it (the wallpaper stays
+	// visible via the compositors own copy)
 	for _, out := range d.outputs {
 		if out.bufferID == bufferID {
 			out.bufferID = 0
