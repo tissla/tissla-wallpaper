@@ -14,15 +14,6 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - goos: linux
-            goarch: amd64
-          - goos: linux
-            goarch: arm64
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -35,29 +26,29 @@ jobs:
 
       - name: Build
         env:
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
+          GOOS: linux
+          GOARCH: amd64
           CGO_ENABLED: 0
         run: |
           go build \
             -trimpath \
             -ldflags="-s -w" \
-            -o "twp-cli-${GOOS}-${GOARCH}" \
+            -o "twp-cli-linux-amd64" \
             ./cmd/cli
 
           go build \
             -trimpath \
             -ldflags="-s -w" \
-            -o "twp-daemon-${GOOS}-${GOARCH}" \
+            -o "twp-daemon-linux-amd64" \
             ./cmd/daemon
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: twp-${{ matrix.goos }}-${{ matrix.goarch }}
+          name: twp-linux-amd64
           path: |
-            twp-cli-${{ matrix.goos }}-${{ matrix.goarch }}
-            twp-daemon-${{ matrix.goos }}-${{ matrix.goarch }}
+            twp-cli-linux-amd64
+            twp-daemon-linux-amd64
 
       - name: Upload release assets
         if: startsWith(github.ref, 'refs/tags/')
