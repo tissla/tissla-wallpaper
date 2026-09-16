@@ -16,9 +16,7 @@ type Image struct {
 	Data   []byte // ARGB8888 (little-endian: B,G,R,A bytes), premultiplied, row-major
 }
 
-// Load decodes and scales the image at path to width x height, allocating the
-// result. Convenient for callers that want an owned buffer (e.g. tests). If
-// width or height is non-positive, Load falls back to the native size.
+// Load decodes and scales the image at path to width x height
 func Load(path string, width, height int, mode ScaleMode) (*Image, error) {
 	src, err := decode(path)
 	if err != nil {

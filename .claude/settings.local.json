@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(/tmp/twp-cli set *)",
+      "Bash(/tmp/twp-cli clear *)",
+      "Read(//tmp/**)"
+    ]
+  }
+}
